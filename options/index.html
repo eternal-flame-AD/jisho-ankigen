@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <link href="style.css" rel="stylesheet" />
+  <script src="/lib/base64.js"></script>
+  <script src="/lib/github-sync.js"></script>
+</head>
+
+<body>
+
+  <section id="github-sync">
+    <p class="hint">Sync To Github</p>
+    <p id="github-sync-status">checking...</p>
+
+    <p for="github-sync-last-ts">Last Synced at: <span id="github-sync-last-ts"></span></p>
+    <details>
+      <summary>Settings</summary>
+      <form id="github-sync-form">
+        <label for="github-username">Username: </label>
+        <input type="text" id="github-username" /><br>
+
+        <label for="github-token">Github Token:</label>
+        <input type="text" id="github-token" /><br>
+
+        <label for="github-repo">Repository (org/repo):</label>
+        <input type="text" id="github-repo" /><br>
+
+        <label for="github-dir">Directory: </label>
+        <input type="text" id="github-dir"><br>
+
+        <input type="submit" id="github-set" value="Save" />
+      </form>
+    </details>
+  </section>
+
+  <section id="section-history">
+    <p class="hint">History</p>
+    <input type="button" value="Commit to GitHub" id="github-commit-history" disabled />
+    <input type="button" value="Copy" id="copy-history" />
+    <input type="button" value="Clear" id="clear-history" data-prompted="0" />
+
+    <input type="button" value="Toggle History" id="toggle-history" />
+    <pre id="query-history"></pre>
+  </section>
+  <script src="script.js"></script>
+</body>
+
+</html>
