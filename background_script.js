@@ -128,12 +128,18 @@ async function gooJnFetchHtml(url) {
             "Accept": "text/html",
         })
     });
+    if (respHTML.redirected)
+        return respHTML.url;
     const parser = new DOMParser();
     return parser.parseFromString(await respHTML.text(), 'text/html');
 }
 
 async function gooJnGetCandidates(prefix) {
     const resp = await gooJnFetchHtml("https://dictionary.goo.ne.jp/srch/jn/" + encodeURIComponent(prefix) + "/m0u/");
+
+    if (typeof resp === "string")
+        return [{ url: resp, title: prefix, text: "" }];
+
     const candList = resp.querySelector("div.section ul.content_list");
     let candidates = [];
     candList.querySelectorAll("li").forEach(item => {
@@ -223,11 +229,21 @@ browser.contextMenus.onClicked.addListener((info, tab) => {
         case "query-goo-ja":
             console.log(`Got selection text ${highlightText}`);
             gooJnGetCandidates(highlightText).then(async(candidates) => {
-                let options = {};
-                for (const cand of candidates) {
-                    options[cand.url] = cand.title + "：　" + cand.text;
+                if (candidates.length == 0)
+                    handleResult({ err: "Goo.jp returned no results" });
+                else if (candidates.length == 1)
+                    gooJnGetDefinition(candidates[0].url).then(async(text) => {
+                        handleResult(text, "goo.jp 国語辞典", tab);
+                    }).catch(err => {
+                        handleResult({ err: err.toString() }, "", tab);
+                    });
+                else {
+                    let options = {};
+                    for (const cand of candidates) {
+                        options[cand.url] = cand.title + "：　" + cand.text;
+                    }
+                    selectionDialog("goo-ja-query", options, tab);
                 }
-                selectionDialog("goo-ja-query", options, tab);
             }).catch(err => {
                 handleResult({ err: err.toString() }, "", tab);
             });
