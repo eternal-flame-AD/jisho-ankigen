@@ -27,33 +27,73 @@ async function saveToStorage(text, testOnly) {
         hist = { "query-history": [] }
     hist = hist["query-history"];
     console.log("original hist is:" + JSON.stringify(hist));
-    let exists = false;
+    let existIdx = -1;
     for (let idx in hist)
-        if (text["ja"] === hist[idx]["ja"]) exists = true;
-    if (testOnly) return exists;
-    exists || hist.push(text);
+        if (text["ja"] === hist[idx]["ja"]) existIdx = idx;
+    if (testOnly) return existIdx >= 0;
+
+    if (existIdx >= 0)
+        Object.assign(hist[existIdx], text);
+    else
+        hist.push(text);
+
     console.log("new history is " + JSON.stringify(hist));
     await browser.storage.sync.set({ "query-history": hist });
     return true;
 }
 
-function handleResult(msg) {
+function selectionDialog(id, options, tabid) {
+    let msgHtml = "";
+    for (const key in options) {
+        msgHtml += `<input type="radio" name="${btoa(id)}" id="${btoa(key)}"> <label for="${btoa(key)}">${options[key]}</label> <br/>`
+    }
+
+    const elem = jQuery("#yume-jisho-ankigen-dialog");
+    elem.html(msgHtml)
+    elem.dialog({
+        title: "選択：",
+        buttons: [{
+                text: "OK",
+                click: function() {
+                    browser.runtime.sendMessage({
+                        type: "dialog-select",
+                        id,
+                        tabid,
+                        key: atob(jQuery("#yume-jisho-ankigen-dialog input[name=\"" + btoa(id) + "\"]:checked").attr("id")),
+                    })
+                    jQuery(this).dialog("close");
+                }
+            },
+            {
+                text: "Cancel",
+                click: function() {
+                    jQuery(this).dialog("close");
+                }
+            },
+        ]
+    })
+}
+
+function handleResult(msg, title) {
+    console.log(title);
     let msgHtml = "";
     let success = false
     if (msg.err) {
+        title = title || "異常";
         msgHtml = escapeHTML(msg.err);
     } else {
+        title = title || "結果"
         success = true;
         for (const key in msg)
             msgHtml += `<tr> <td style="background-color: #ececec; width: 2em;">${escapeHTML(key)}</td><td> ${escapeHTML(msg[key])}</td>`;
         msgHtml = "<table>" + msgHtml + "</table>";
     }
     const elem = jQuery("#yume-jisho-ankigen-dialog");
-    elem.attr("title", "")
     elem.html(msgHtml)
     if (success) {
         saveToStorage(msg, true).then((exist) => {
             elem.dialog({
+                title,
                 minWidth: 600,
                 buttons: [{
                         text: exist ? "Already Saved" : "Save",

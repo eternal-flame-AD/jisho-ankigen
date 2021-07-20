@@ -15,6 +15,7 @@
     "permissions": [
         "contextMenus",
         "https://jisho.org/api/*",
+        "https://dictionary.goo.ne.jp/*",
         "clipboardWrite",
         "activeTab",
         "storage",
