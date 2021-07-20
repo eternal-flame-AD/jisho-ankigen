@@ -1,7 +1,8 @@
 function escapeHTML(str) {
     // https://stackoverflow.com/questions/3043775/how-to-escape-html
-    return new Option(str).innerHTML;
+    return new Option(str).innerHTML.replace(/\n/g, "<br/>");
 }
+
 function copyToClipboard(obj) {
     // https://github.com/mdn/webextensions-examples/blob/master/context-menu-copy-link-with-types/clipboard-helper.js
     function oncopy(event) {
@@ -54,10 +55,9 @@ function handleResult(msg) {
         saveToStorage(msg, true).then((exist) => {
             elem.dialog({
                 minWidth: 600,
-                buttons: [
-                    {
+                buttons: [{
                         text: exist ? "Already Saved" : "Save",
-                        click: exist ? undefined : function () {
+                        click: exist ? undefined : function() {
                             saveToStorage(msg).finally(() => {
                                 jQuery(this).dialog("close");
                             });
@@ -66,13 +66,13 @@ function handleResult(msg) {
                     },
                     {
                         text: "Copy JSON",
-                        click: function () {
+                        click: function() {
                             copyToClipboard(msg);
                         }
                     },
                     {
                         text: "Discard",
-                        click: function () {
+                        click: function() {
                             jQuery(this).dialog("close");
                         }
                     },
@@ -81,14 +81,12 @@ function handleResult(msg) {
         })
     } else {
         elem.dialog({
-            buttons: [
-                {
-                    text: "Close",
-                    click: function () {
-                        jQuery(this).dialog("close");
-                    }
-                },
-            ]
+            buttons: [{
+                text: "Close",
+                click: function() {
+                    jQuery(this).dialog("close");
+                }
+            }, ]
         });
     }
 

@@ -47,6 +47,7 @@ function handle_result(text, tab) {
         throw error;
     });
 }
+
 function scoreSlugMatch(keyword, slug, noStrip) {
     slug = slug.replaceAll(/[0-9a-zA-Z,^=-_]/g, "");
     if (keyword == slug) {
@@ -95,7 +96,7 @@ async function jishoGetKeyword(keyword) {
                 const ret = {
                     "ja": matched_entry.japanese[0].word || matched_entry.japanese[0].reading,
                     "fu": matched_entry.japanese[0].reading,
-                    "en": matched_entry.senses[0].english_definitions.join("; "),
+                    "en": matched_entry.senses.reduce((prev, cur) => prev + (prev ? "\n" : "") + cur.english_definitions.join("; "), ""),
                 };
                 if (ret.fu == ret.ja) delete ret.fu;
                 return ret;
@@ -115,7 +116,7 @@ browser.contextMenus.onClicked.addListener((info, tab) => {
         case "query-jisho":
             const highlightText = (info.selectionText || info.linkText).replaceAll(/\s/g, "").toLocaleLowerCase();
             console.log(`Got selection text ${highlightText}`);
-            jishoGetKeyword(highlightText).then(async (text) => {
+            jishoGetKeyword(highlightText).then(async(text) => {
                 handle_result(text, tab);
             }).catch(err => {
                 handle_result({ err: err.toString() }, tab);
