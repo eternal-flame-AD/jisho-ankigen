@@ -185,9 +185,10 @@ async function gooJnGetDefinition(candidateURL) {
     }
     tenseList.querySelectorAll("ol.meaning").forEach((i) => ret.jm += i.querySelectorAll(".text").innerText.trim() + "\n");
     ret.jm = ret.jm || (() => {
+        const meanings = resp.querySelectorAll("div.meaning_area div.contents");
         let meaningText = "";
 
-        resp.querySelectorAll("div.meaning_area div.contents").forEach((i, idx) => {
+        meanings.forEach((i, idx) => {
             meaningText += (meanings.length > 1 ? `(${idx+1}) ` : "") + i.innerText.trim() + "\n";
         })
         return meaningText;
