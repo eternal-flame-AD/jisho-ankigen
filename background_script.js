@@ -29,7 +29,17 @@ async function ensure_tab_script(tab) {
         await browser.tabs.executeScript(tab.id, {
             file: "tab-functions.js",
         });
+}
 
+async function call_tab_function(fn, tab, ...args) {
+    const code = "(args=>" + fn + "(...args))(" + JSON.stringify(args) + ");";
+    console.log("code is" + code)
+
+    return ensure_tab_script(tab).then(() => {
+        return browser.tabs.executeScript(tab.id, {
+            code,
+        });
+    });
 }
 
 function stripURLHash(u, origin) {
@@ -72,15 +82,7 @@ browser.runtime.onMessage.addListener((request, sender, response) => {
 })
 
 function handleResult(text, title, tab) {
-    // // https://github.com/mdn/webextensions-examples/blob/master/context-menu-copy-link-with-types/background.js
-    const code = "(args=>handleResult(args.text, args.title))(" + JSON.stringify({ text, title }) + ");";
-    console.log("code is" + code)
-
-    ensure_tab_script(tab).then(() => {
-        return browser.tabs.executeScript(tab.id, {
-            code,
-        });
-    }).catch((error) => {
+    call_tab_function("handleResult", tab, text, title).catch((error) => {
         // This could happen if the extension is not allowed to run code in
         // the page, for example if the tab is a privileged page.
         console.error("Failed to copy text: " + error);
@@ -89,13 +91,7 @@ function handleResult(text, title, tab) {
 }
 
 function selectionDialog(id, options, tab) {
-    const code = "(args=>selectionDialog(args.id, args.options, args.tabid))(" + JSON.stringify({ id, options, tabid: tab.id }) + ")";
-    console.log("code is" + code)
-    ensure_tab_script(tab).then(() => {
-        return browser.tabs.executeScript(tab.id, {
-            code,
-        });
-    }).catch((error) => {
+    call_tab_function("selectionDialog", tab, id, options, tab.id).catch((error) => {
         // This could happen if the extension is not allowed to run code in
         // the page, for example if the tab is a privileged page.
         console.error("Failed to show dialog: " + error);
@@ -206,35 +202,34 @@ async function jishoGetKeyword(keyword) {
     const Url = "https://jisho.org/api/v1/search/words?keyword=" + encodeURIComponent(keyword);
     const respJSON = await fetch(Url);
     const resp = await respJSON.json();
-    switch (resp.meta.status) {
-        case 200:
-            if (resp.data.length == 0) {
-                throw new Error("jisho.org failed to return any result.");
-            } else {
-                let matched_entry = null;
-                let matched_score = 0;
-                for (let entry of resp.data) {
-                    let score = scoreSlugMatch(keyword, entry.slug);
-                    if (matched_score == 0 || score > matched_score) {
-                        matched_score = score;
-                        matched_entry = entry;
-                    }
-                }
-                if (matched_entry == null) {
-                    throw new Error("no entry matched");
-                }
-                const ret = {
-                    "ja": matched_entry.japanese[0].word || matched_entry.japanese[0].reading,
-                    "fu": matched_entry.japanese[0].reading,
-                    "en": matched_entry.senses.reduce((prev, cur) => prev + (prev ? "\n" : "") + cur.english_definitions.join("; "), ""),
-                    "src": "jisho.org",
-                };
-                if (ret.fu == ret.ja) delete ret.fu;
-                return ret;
-            }
-        default:
-            throw new Error(`Unexpected Status Code from jisho.org: ${resp.meta.status}`);
+
+    if (resp.meta.status !== 200)
+        throw new Error(`Unexpected HTTP status from jisho.org: ${resp.meta.status}`);
+
+    if (resp.data.length == 0)
+        throw new Error("jisho.org failed to return any result.");
+
+    let matched_entry;
+    let matched_score = 0;
+    for (let entry of resp.data) {
+        let score = scoreSlugMatch(keyword, entry.slug);
+        if (matched_score == 0 || score > matched_score) {
+            matched_score = score;
+            matched_entry = entry;
+        }
     }
+
+    if (!matched_entry)
+        throw new Error("no entry matched");
+
+    const ret = {
+        "ja": matched_entry.japanese[0].word || matched_entry.japanese[0].reading,
+        "fu": matched_entry.japanese[0].reading,
+        "en": matched_entry.senses.reduce((prev, cur) => prev + (prev ? "\n" : "") + cur.english_definitions.join("; "), ""),
+        "src": "jisho.org",
+    };
+    if (ret.fu == ret.ja) delete ret.fu;
+    return ret;
 }
 
 browser.contextMenus.create({
