@@ -32,6 +32,13 @@ async function ensure_tab_script(tab) {
 
 }
 
+function stripURLHash(u, origin) {
+    if (u.startsWith("/") && origin)
+        u = origin + u;
+    const url = new URL(u);
+    return url.origin + url.pathname + url.search;
+}
+
 function getFirstTextNode(node) {
     let firstText = "";
     for (const curNode of node.childNodes) {
@@ -143,11 +150,27 @@ async function gooJnGetCandidates(prefix) {
     const candList = resp.querySelector("div.section ul.content_list");
     let candidates = [];
     candList.querySelectorAll("li").forEach(item => {
-        candidates.push({
-            "url": item.querySelector("a").getAttribute("href").trim(),
-            "title": item.querySelector("p.title").innerText.trim(),
-            "text": item.querySelector("p.text").innerText.trim(),
-        })
+        const url = item.querySelector("a").getAttribute("href").trim();
+        const realUrl = stripURLHash(url, "https://dictionary.goo.ne.jp");
+        const text = item.querySelector("p.text").innerText.trim();
+        if (candidates.every((val, idx) => {
+                if (val.url == realUrl) {
+                    if (val.altn_urls.length == 1)
+                        val.text = "(1) " + val.text;
+
+                    val.text += `\r\n(${val.altn_urls.length+1}) ` + text;
+                    val.altn_urls.push(url);
+                    return false;
+                }
+                return true;
+            }))
+            candidates.push({
+                "url": realUrl,
+                "title": item.querySelector("p.title").innerText.trim(),
+                "text": text,
+                "altn_urls": [url],
+            });
+
     })
     return candidates;
 }
@@ -164,8 +187,17 @@ async function gooJnGetDefinition(candidateURL) {
         "jm": "",
         "src": "goo_jp",
     }
-    tenseList.querySelectorAll("ol.meaning").forEach((i) => ret.jm += i.querySelectorAll(".text").innerText + "\n");
-    ret.jm = ret.jm || resp.querySelector("div.meaning_area div.contents").innerText;
+    tenseList.querySelectorAll("ol.meaning").forEach((i) => ret.jm += i.querySelectorAll(".text").innerText.trim() + "\n");
+    ret.jm = ret.jm || (() => {
+        let meaningText = "";
+
+        resp.querySelectorAll("div.meaning_area div.contents").forEach((i, idx) => {
+            meaningText += (meanings.length > 1 ? `(${idx+1}) ` : "") + i.innerText.trim() + "\n";
+        })
+        return meaningText;
+    })();
+    if (!ret.jm)
+        throw new Error("解説を見つかれない");
 
     return ret;
 }
