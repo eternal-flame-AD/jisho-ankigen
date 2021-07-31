@@ -17,6 +17,7 @@
         "https://jisho.org/api/*",
         "https://dictionary.goo.ne.jp/*",
         "clipboardWrite",
+        "clipboardRead",
         "activeTab",
         "storage",
         "idle"

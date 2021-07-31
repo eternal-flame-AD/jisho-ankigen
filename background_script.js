@@ -1,65 +1,3 @@
-// Put all the javascript code here, that you want to execute in background.
-async function ensure_tab_script(tab) {
-    const has_jquery = (await browser.tabs.executeScript(tab.id, { code: "typeof jQuery === 'function'" }))[0];
-    if (!has_jquery) {
-        const jq_files = [
-            "jquery-ui.css",
-            "jquery-ui.structure.css",
-            "jquery-ui.theme.css",
-            "external/jquery/jquery-3.6.0.min.js",
-            "jquery-ui.min.js"
-        ];
-        for (const item of jq_files)
-            try {
-                await browser.tabs[item.endsWith(".css") ? "insertCSS" : "executeScript"](tab.id, { file: "/jquery-ui-1.12.1.noeffects/" + item });
-            } catch (e) {
-                console.error(`error injecting jQuery file ${item}: `, e);
-                throw e;
-            }
-    }
-    const functions = [
-        "copyToClipboard",
-        "handleResult",
-        "selectionDialog",
-    ];
-    const code = JSON.stringify(functions) + ".every(i=>typeof (window[i]) === 'function')";
-    console.log("verification code is:" + code);
-    const ver_result = (await browser.tabs.executeScript(tab.id, { code }))[0];
-    if (!ver_result)
-        await browser.tabs.executeScript(tab.id, {
-            file: "tab-functions.js",
-        });
-}
-
-async function call_tab_function(fn, tab, ...args) {
-    const code = "(args=>" + fn + "(...args))(" + JSON.stringify(args) + ");";
-    console.log("code is" + code)
-
-    return ensure_tab_script(tab).then(() => {
-        return browser.tabs.executeScript(tab.id, {
-            code,
-        });
-    });
-}
-
-function stripURLHash(u, origin) {
-    if (u.startsWith("/") && origin)
-        u = origin + u;
-    const url = new URL(u);
-    return url.origin + url.pathname + url.search;
-}
-
-function getFirstTextNode(node) {
-    let firstText = "";
-    for (const curNode of node.childNodes) {
-        if (curNode.nodeName === "#text") {
-            firstText = curNode.nodeValue;
-            break;
-        }
-    }
-    return firstText;
-}
-
 browser.runtime.onMessage.addListener((request, sender, response) => {
     switch (request.type) {
         case "dialog-select":
@@ -81,210 +19,53 @@ browser.runtime.onMessage.addListener((request, sender, response) => {
     }
 })
 
-function handleResult(text, title, tab) {
-    call_tab_function("handleResult", tab, text, title).catch((error) => {
-        // This could happen if the extension is not allowed to run code in
-        // the page, for example if the tab is a privileged page.
-        console.error("Failed to copy text: " + error);
-        throw error;
-    });
-}
-
-function selectionDialog(id, options, tab) {
-    call_tab_function("selectionDialog", tab, id, options, tab.id).catch((error) => {
-        // This could happen if the extension is not allowed to run code in
-        // the page, for example if the tab is a privileged page.
-        console.error("Failed to show dialog: " + error);
-        throw error;
-    });
-}
-
-function scoreSlugMatch(keyword, slug, noStrip) {
-    slug = slug.replaceAll(/[0-9a-zA-Z,^=-_]/g, "");
-    if (keyword == slug) {
-        return 100;
-    }
-    if (slug.startsWith(keyword)) {
-        return 95;
-    }
-    if (keyword.length > 2) {
-        keyword = keyword.substr(0, keyword.length - 1);
-        if (slug.startsWith(keyword)) {
-            return 90;
-        }
-        keyword = keyword.substr(0, keyword.length - 2);
-        if (slug.startsWith(keyword)) {
-            return 85;
-        }
-    }
-    if ((keyword.replaceAll(/[ a-zA-Z'"]/g), "").length == 0)
-        return 5;
-
-    return 0;
-}
-
-async function gooJnFetchHtml(url) {
-    if (url.startsWith("/"))
-        url = "https://dictionary.goo.ne.jp" + url
-    const respHTML = await fetch(url, {
-        headers: new Headers({
-            "Accept": "text/html",
-        })
-    });
-    if (respHTML.redirected)
-        return respHTML.url;
-    const parser = new DOMParser();
-    return parser.parseFromString(await respHTML.text(), 'text/html');
-}
-
-async function gooJnGetCandidates(prefix) {
-    const resp = await gooJnFetchHtml("https://dictionary.goo.ne.jp/srch/jn/" + encodeURIComponent(prefix) + "/m0u/");
-
-    if (typeof resp === "string")
-        return [{ url: resp, title: prefix, text: "" }];
-
-    const candList = resp.querySelector("div.section ul.content_list");
-    let candidates = [];
-    candList.querySelectorAll("li").forEach(item => {
-        const url = item.querySelector("a").getAttribute("href").trim();
-        const realUrl = stripURLHash(url, "https://dictionary.goo.ne.jp");
-        const text = item.querySelector("p.text").innerText.trim();
-        if (candidates.every((val, idx) => {
-                if (val.url == realUrl) {
-                    if (val.altn_urls.length == 1)
-                        val.text = "(1) " + val.text;
-
-                    val.text += `\r\n(${val.altn_urls.length+1}) ` + text;
-                    val.altn_urls.push(url);
-                    return false;
-                }
-                return true;
-            }))
-            candidates.push({
-                "url": realUrl,
-                "title": item.querySelector("p.title").innerText.trim(),
-                "text": text,
-                "altn_urls": [url],
-            });
-
-    })
-    return candidates;
-}
-
-async function gooJnGetDefinition(candidateURL) {
-    const resp = await gooJnFetchHtml(candidateURL);
-    const tenseList = resp.querySelector("div.section");
-
-    const keyword = resp.querySelector("div#NR-main h1");
-
-    let ret = {
-        "ja": getFirstTextNode(keyword),
-        "fu": (i => i ? i.innerText.replace(/^[(（]/, "").replace(/[)）]$/, "") : "")(keyword.querySelector("span.yomi")),
-        "jm": "",
-        "src": "goo_jp",
-    }
-    tenseList.querySelectorAll("ol.meaning").forEach((i) => ret.jm += i.querySelectorAll(".text").innerText.trim() + "\n");
-    ret.jm = ret.jm || (() => {
-        const meanings = resp.querySelectorAll("div.meaning_area div.contents");
-        let meaningText = "";
-
-        meanings.forEach((i, idx) => {
-            meaningText += (meanings.length > 1 ? `(${idx+1}) ` : "") + i.innerText.trim() + "\n";
-        })
-        return meaningText;
-    })();
-    if (!ret.jm)
-        throw new Error("解説を見つかれない");
-
-    return ret;
-}
-
-async function jishoGetKeyword(keyword) {
-    const Url = "https://jisho.org/api/v1/search/words?keyword=" + encodeURIComponent(keyword);
-    const respJSON = await fetch(Url);
-    const resp = await respJSON.json();
-
-    if (resp.meta.status !== 200)
-        throw new Error(`Unexpected HTTP status from jisho.org: ${resp.meta.status}`);
-
-    if (resp.data.length == 0)
-        throw new Error("jisho.org failed to return any result.");
-
-    let matched_entry;
-    let matched_score = 0;
-    for (let entry of resp.data) {
-        let score = scoreSlugMatch(keyword, entry.slug);
-        if (matched_score == 0 || score > matched_score) {
-            matched_score = score;
-            matched_entry = entry;
-        }
-    }
-
-    if (!matched_entry)
-        throw new Error("no entry matched");
-
-    const ret = {
-        "ja": matched_entry.japanese[0].word || matched_entry.japanese[0].reading,
-        "fu": matched_entry.japanese[0].reading,
-        "en": matched_entry.senses.reduce((prev, cur) => prev + (prev ? "\n" : "") + cur.english_definitions.join("; "), ""),
-        "src": "jisho.org",
-    };
-    if (ret.fu == ret.ja) delete ret.fu;
-    return ret;
-}
-
-browser.contextMenus.create({
-    id: "query-jisho",
-    title: "Query jisho.org",
-    contexts: ["selection", "editable", "link"]
-})
-browser.contextMenus.create({
-    id: "query-goo-ja",
-    title: "Query Goo.jp 国語辞書",
-    contexts: ["selection", "editable", "link"]
-})
-browser.contextMenus.onClicked.addListener((info, tab) => {
-    const highlightText = (info.selectionText || info.linkText).replaceAll(/\s/g, "").toLocaleLowerCase();
-    switch (info.menuItemId) {
+async function handleKeywordQuery(queryType, keyword, tab) {
+    switch (queryType) {
         case "query-jisho":
-            console.log(`Got selection text ${highlightText}`);
-            jishoGetKeyword(highlightText).then(async(text) => {
-                handleResult(text, "jisho.org 結果", tab);
-            }).catch(err => {
+            console.log(`Got selection text ${keyword}`);
+            try {
+                const text = await jishoGetKeyword(keyword);
+                handleResult(text, "jisho.org 結果", tab)
+            } catch (err) {
                 handleResult({ err: err.toString() }, "", tab);
-            });
+            }
             break;
         case "query-goo-ja":
-            console.log(`Got selection text ${highlightText}`);
-            gooJnGetCandidates(highlightText).then(async(candidates) => {
+            console.log(`Got selection text ${keyword}`);
+            try {
+                const candidates = await gooJnGetCandidates(keyword)
                 if (candidates.length == 0)
                     handleResult({ err: "Goo.jp returned no results" });
-                else if (candidates.length == 1)
-                    gooJnGetDefinition(candidates[0].url).then(async(text) => {
-                        handleResult(text, "goo.jp 国語辞典", tab);
-                    }).catch(err => {
-                        handleResult({ err: err.toString() }, "", tab);
-                    });
-                else {
+                else if (candidates.length == 1) {
+                    const text = await gooJnGetDefinition(candidates[0].url);
+                    handleResult(text, "goo.jp 国語辞典", tab);
+                } else {
                     let options = {};
                     for (const cand of candidates) {
                         options[cand.url] = cand.title + "：　" + cand.text;
                     }
                     selectionDialog("goo-ja-query", options, tab);
                 }
-            }).catch(err => {
+            } catch (err) {
                 handleResult({ err: err.toString() }, "", tab);
-            });
+            }
             break;
         default:
-            console.warn(`Could not determine contextMenu type ${info.menuItemId}`);
+            console.warn(`Could not determine query type ${queryType}`);
     }
-    return
-})
+}
 
-browser.idle.setDetectionInterval(600);
-browser.idle.onStateChanged.addListener((state) => {
-    if (state != "idle" && state != "locked")
-        return;
-    heuristicallySyncToGithub().catch(console.error);
+browser.contextMenus.create({
+    id: "query-jisho",
+    title: "Query jisho.org",
+    contexts: ["selection", "editable", "link", "page"]
+})
+browser.contextMenus.create({
+    id: "query-goo-ja",
+    title: "Query Goo.jp 国語辞書",
+    contexts: ["selection", "editable", "link", "page"]
+})
+browser.contextMenus.onClicked.addListener(async(info, tab) => {
+    const highlightText = (info.selectionText || info.linkText || (await navigator.clipboard.readText())).replaceAll(/\s/g, "").toLocaleLowerCase();
+    await handleKeywordQuery(info.menuItemId, highlightText, tab);
 })
